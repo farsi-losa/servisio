@@ -9,6 +9,7 @@ android {
     namespace = "com.example.servisio"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "29.0.14033849"
+    // ndkVersion = "25.1.8937393"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
