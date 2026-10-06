@@ -37,7 +37,7 @@ class DatabaseHelper {
     );
   }
 
-  // Hapus Barang berdasarkan ID
+  // Hapus Barang berdasarkan ID (Otomatis menghapus tasks terkait karena ON DELETE CASCADE)
   Future<int> deleteItem(int id) async {
     final db = await instance.database;
     return await db.delete('items', where: 'id = ?', whereArgs: [id]);
@@ -142,6 +142,27 @@ class DatabaseHelper {
     return await db.insert('items', item.toMap());
   }
 
+  /// BARU: Menambah 1 Item beserta BANYAK Task sekaligus secara aman (Transaction)
+  Future<int> insertItemWithTasks(
+    Item item,
+    List<MaintenanceTask> tasks,
+  ) async {
+    final db = await instance.database;
+    return await db.transaction((txn) async {
+      // 1. Insert Item
+      final itemId = await txn.insert('items', item.toMap());
+
+      // 2. Insert semua task dengan itemId yang baru didapat
+      for (var task in tasks) {
+        final taskMap = task.toMap();
+        taskMap['item_id'] = itemId;
+        await txn.insert('maintenance_tasks', taskMap);
+      }
+
+      return itemId;
+    });
+  }
+
   Future<List<Item>> getItemsByCategory(int categoryId) async {
     final db = await instance.database;
     final result = await db.query(
@@ -159,6 +180,54 @@ class DatabaseHelper {
     return result.map((map) => Item.fromMap(map)).toList();
   }
 
+  /// BARU: Ambil 1 Item lengkap beserta seluruh daftar MaintenanceTask miliknya
+  Future<Item?> getItemWithTasks(int itemId) async {
+    final db = await instance.database;
+
+    final itemMaps = await db.query(
+      'items',
+      where: 'id = ?',
+      whereArgs: [itemId],
+    );
+
+    if (itemMaps.isEmpty) return null;
+
+    final taskMaps = await db.query(
+      'maintenance_tasks',
+      where: 'item_id = ?',
+      whereArgs: [itemId],
+      orderBy: 'next_due_date ASC', // Diurutkan dari jadwal terdekat
+    );
+
+    final tasks = taskMaps.map((map) => MaintenanceTask.fromMap(map)).toList();
+
+    return Item.fromMap(itemMaps.first, tasks: tasks);
+  }
+
+  /// BARU: Ambil SELURUH Item beserta daftar MaintenanceTask masing-masing
+  Future<List<Item>> getAllItemsWithTasks() async {
+    final db = await instance.database;
+
+    final itemMaps = await db.query('items', orderBy: 'id DESC');
+    List<Item> itemsWithTasks = [];
+
+    for (var map in itemMaps) {
+      final itemId = map['id'] as int;
+      final taskMaps = await db.query(
+        'maintenance_tasks',
+        where: 'item_id = ?',
+        whereArgs: [itemId],
+        orderBy: 'next_due_date ASC',
+      );
+
+      final tasks =
+          taskMaps.map((taskMap) => MaintenanceTask.fromMap(taskMap)).toList();
+      itemsWithTasks.add(Item.fromMap(map, tasks: tasks));
+    }
+
+    return itemsWithTasks;
+  }
+
   Future<int> updateItem(Item item) async {
     final db = await instance.database;
     return await db.update(
@@ -174,6 +243,7 @@ class DatabaseHelper {
   // ==========================================
   Future<int> insertTask(MaintenanceTask task) async {
     final db = await instance.database;
+    print('Inserting task: ${task.toMap()}'); // Debugging line
     return await db.insert('maintenance_tasks', task.toMap());
   }
 
@@ -183,8 +253,28 @@ class DatabaseHelper {
       'maintenance_tasks',
       where: 'item_id = ?',
       whereArgs: [itemId],
+      orderBy: 'next_due_date ASC',
     );
     return result.map((map) => MaintenanceTask.fromMap(map)).toList();
+  }
+
+  Future<int> updateTask(MaintenanceTask task) async {
+    final db = await instance.database;
+    return await db.update(
+      'maintenance_tasks',
+      task.toMap(),
+      where: 'id = ?',
+      whereArgs: [task.id],
+    );
+  }
+
+  Future<int> deleteTask(int taskId) async {
+    final db = await instance.database;
+    return await db.delete(
+      'maintenance_tasks',
+      where: 'id = ?',
+      whereArgs: [taskId],
+    );
   }
 
   // ==========================================

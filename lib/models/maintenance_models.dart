@@ -8,11 +8,11 @@ class Category {
   Map<String, dynamic> toMap() => {'id': id, 'name': name};
 
   factory Category.fromMap(Map<String, dynamic> map) {
-    return Category(id: map['id'], name: map['name']);
+    return Category(id: map['id'] as int?, name: map['name'] as String);
   }
 }
 
-// 2. MODEL ITEM
+// 2. MODEL ITEM (Ditingkatkan dengan List<MaintenanceTask>)
 class Item {
   final int? id;
   final int categoryId;
@@ -23,6 +23,9 @@ class Item {
   final String? createdAt;
   final String? other;
 
+  // OPTIONAL: Menampung daftar task langsung di objek Item untuk kemudahan UI
+  final List<MaintenanceTask> tasks;
+
   Item({
     this.id,
     required this.categoryId,
@@ -32,6 +35,7 @@ class Item {
     this.photoPath,
     this.createdAt,
     this.other,
+    this.tasks = const [], // Default list kosong
   });
 
   Map<String, dynamic> toMap() => {
@@ -44,16 +48,45 @@ class Item {
     'other': other,
   };
 
-  factory Item.fromMap(Map<String, dynamic> map) {
+  factory Item.fromMap(
+    Map<String, dynamic> map, {
+    List<MaintenanceTask> tasks = const [],
+  }) {
     return Item(
-      id: map['id'],
-      categoryId: map['category_id'],
-      name: map['name'],
-      brand: map['brand'],
-      location: map['location'],
-      photoPath: map['photo_path'],
-      createdAt: map['created_at'],
-      other: map['other'],
+      id: map['id'] as int?,
+      categoryId: map['category_id'] as int,
+      name: map['name'] as String,
+      brand: map['brand'] as String?,
+      location: map['location'] as String?,
+      photoPath: map['photo_path'] as String?,
+      createdAt: map['created_at'] as String?,
+      other: map['other'] as String?,
+      tasks: tasks,
+    );
+  }
+
+  // Metode copyWith untuk mempermudah update state di Flutter
+  Item copyWith({
+    int? id,
+    int? categoryId,
+    String? name,
+    String? brand,
+    String? location,
+    String? photoPath,
+    String? createdAt,
+    String? other,
+    List<MaintenanceTask>? tasks,
+  }) {
+    return Item(
+      id: id ?? this.id,
+      categoryId: categoryId ?? this.categoryId,
+      name: name ?? this.name,
+      brand: brand ?? this.brand,
+      location: location ?? this.location,
+      photoPath: photoPath ?? this.photoPath,
+      createdAt: createdAt ?? this.createdAt,
+      other: other ?? this.other,
+      tasks: tasks ?? this.tasks,
     );
   }
 }
@@ -65,6 +98,7 @@ class MaintenanceTask {
   final String taskName; // Cth: "Cuci AC" atau "Isi Freon"
   final int intervalMonths;
   final String nextDueDate; // Format YYYY-MM-DD
+  // final bool isCompleted; // Fitur opsional status penanda
 
   MaintenanceTask({
     this.id,
@@ -72,6 +106,7 @@ class MaintenanceTask {
     required this.taskName,
     required this.intervalMonths,
     required this.nextDueDate,
+    // this.isCompleted = false,
   });
 
   Map<String, dynamic> toMap() => {
@@ -80,15 +115,17 @@ class MaintenanceTask {
     'task_name': taskName,
     'interval_months': intervalMonths,
     'next_due_date': nextDueDate,
+    // 'is_completed': isCompleted ? 1 : 0,
   };
 
   factory MaintenanceTask.fromMap(Map<String, dynamic> map) {
     return MaintenanceTask(
-      id: map['id'],
-      itemId: map['item_id'],
-      taskName: map['task_name'],
-      intervalMonths: map['interval_months'],
-      nextDueDate: map['next_due_date'],
+      id: map['id'] as int?,
+      itemId: map['item_id'] as int,
+      taskName: map['task_name'] as String,
+      intervalMonths: map['interval_months'] as int,
+      nextDueDate: map['next_due_date'] as String,
+      // isCompleted: (map['is_completed'] ?? 0) == 1,
     );
   }
 }
@@ -121,12 +158,20 @@ class ServiceLog {
 
   factory ServiceLog.fromMap(Map<String, dynamic> map) {
     return ServiceLog(
-      id: map['id'],
-      taskId: map['task_id'],
-      serviceDate: map['service_date'],
+      id: map['id'] as int?,
+      taskId: map['task_id'] as int,
+      serviceDate: map['service_date'] as String,
       cost: (map['cost'] as num).toDouble(),
-      notes: map['notes'],
-      createdAt: map['created_at'],
+      notes: map['notes'] as String?,
+      createdAt: map['created_at'] as String?,
     );
   }
+}
+
+// Model bantuan sederhana (atau tempatkan di luar class _ItemDetailScreenState)
+class LogWithTaskName {
+  final ServiceLog log;
+  final String taskName;
+
+  LogWithTaskName({required this.log, required this.taskName});
 }

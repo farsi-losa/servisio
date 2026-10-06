@@ -21,6 +21,7 @@ class ItemDetailScreen extends StatefulWidget {
 class _ItemDetailScreenState extends State<ItemDetailScreen> {
   late Future<List<MaintenanceTask>> _tasksFuture;
   late Future<List<ServiceLog>> _allLogsFuture;
+  late Future<Map<String, List<LogWithTaskName>>> _groupedLogsFuture;
 
   int _selectedLogIndex = 0;
 
@@ -34,6 +35,7 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     setState(() {
       _tasksFuture = DatabaseHelper.instance.getTasksByItem(widget.item.id!);
       _allLogsFuture = _loadAllLogs();
+      _groupedLogsFuture = _loadGroupedLogs();
     });
   }
 
@@ -47,6 +49,36 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     }
     allLogs.sort((a, b) => b.serviceDate.compareTo(a.serviceDate));
     return allLogs;
+  }
+
+  // Mengambil histori servis dan mengelompokkannya berdasarkan tanggal (serviceDate)
+  Future<Map<String, List<LogWithTaskName>>> _loadGroupedLogs() async {
+    final tasks = await DatabaseHelper.instance.getTasksByItem(widget.item.id!);
+    List<LogWithTaskName> allLogsWithTask = [];
+
+    for (var task in tasks) {
+      final logs = await DatabaseHelper.instance.getServiceLogsByTask(task.id!);
+      for (var log in logs) {
+        allLogsWithTask.add(LogWithTaskName(log: log, taskName: task.taskName));
+      }
+    }
+
+    // Urutkan dari tanggal terbaru ke terlama
+    allLogsWithTask.sort(
+      (a, b) => b.log.serviceDate.compareTo(a.log.serviceDate),
+    );
+
+    // Grouping berdasarkan serviceDate
+    Map<String, List<LogWithTaskName>> grouped = {};
+    for (var item in allLogsWithTask) {
+      final date = item.log.serviceDate;
+      if (!grouped.containsKey(date)) {
+        grouped[date] = [];
+      }
+      grouped[date]!.add(item);
+    }
+
+    return grouped;
   }
 
   @override
@@ -335,17 +367,56 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Daftar Maintenance',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1D2939),
-                      ),
+                    // HEADER DAFTAR MAINTENANCE + TOMBOL TAMBAH JADWAL BARU
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Daftar Maintenance',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1D2939),
+                          ),
+                        ),
+                        // Tombol Tambah Tugas Baru (Selalu Ada)
+                        InkWell(
+                          onTap: _showAddTaskDialog,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF2F4F7),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(
+                                  Icons.add_rounded,
+                                  size: 18,
+                                  color: Color(0xFF0F2537),
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Tambah',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0F2537),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 16),
 
-                    // LIST TUGAS MAINTENANCE DARI SQLITE
+                    // LIST TUGAS MAINTENANCE DARI SQLITE (Bisa Banyak Tugas)
                     FutureBuilder<List<MaintenanceTask>>(
                       future: _tasksFuture,
                       builder: (context, snapshot) {
@@ -367,7 +438,6 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                           separatorBuilder:
                               (_, __) => const SizedBox(height: 12),
                           itemBuilder: (context, index) {
-                            // Selang-seling warna kartu (Light Grey vs Light Mint Green)
                             bool isMint = index % 2 != 0;
                             return _buildMaintenanceCard(
                               tasks[index],
@@ -391,12 +461,12 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    FutureBuilder<List<ServiceLog>>(
-                      future: _allLogsFuture,
+                    FutureBuilder<Map<String, List<LogWithTaskName>>>(
+                      future: _groupedLogsFuture,
                       builder: (context, snapshot) {
                         if (!snapshot.hasData || snapshot.data!.isEmpty) {
                           return Text(
-                            'Belum ada riwayat servis terrekam.',
+                            'Belum ada riwayat servis terekam.',
                             style: TextStyle(
                               color: Colors.grey[500],
                               fontSize: 13,
@@ -404,16 +474,25 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                           );
                         }
 
-                        final logs = snapshot.data!;
+                        final groupedLogs = snapshot.data!;
+                        final dates = groupedLogs.keys.toList();
+
+                        if (_selectedLogIndex >= dates.length) {
+                          _selectedLogIndex = 0;
+                        }
+
+                        final selectedDate = dates[_selectedLogIndex];
+                        final logsOnSelectedDate = groupedLogs[selectedDate]!;
+
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Horizontal Date Tabs
+                            // 1. Horizontal Date Tabs
                             SizedBox(
                               height: 40,
                               child: ListView.builder(
                                 scrollDirection: Axis.horizontal,
-                                itemCount: logs.length,
+                                itemCount: dates.length,
                                 itemBuilder: (context, index) {
                                   bool isSelected = _selectedLogIndex == index;
                                   return GestureDetector(
@@ -437,7 +516,7 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                                         ),
                                       ),
                                       child: Text(
-                                        logs[index].serviceDate,
+                                        dates[index],
                                         style: TextStyle(
                                           fontWeight:
                                               isSelected
@@ -455,16 +534,96 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                                 },
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            // Details of selected log
-                            Text(
-                              logs[_selectedLogIndex].notes ??
-                                  'Servis Rutin Berhasil',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFF344054),
-                              ),
+                            const SizedBox(height: 16),
+
+                            // 2. Daftar Log dengan Nama Task, Catatan, & Field Biaya
+                            ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: logsOnSelectedDate.length,
+                              separatorBuilder:
+                                  (_, __) => const SizedBox(height: 12),
+                              itemBuilder: (context, index) {
+                                final logItem = logsOnSelectedDate[index];
+                                final costText =
+                                    logItem.log.cost > 0
+                                        ? 'Rp ${logItem.log.cost.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}'
+                                        : 'Gratis / Rp 0';
+
+                                return Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF9FAFB),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: Colors.grey.shade200,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      // Header Log: Nama Task
+                                      Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.build_circle_outlined,
+                                            size: 18,
+                                            color: Color(0xFF0097B2),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            logItem.taskName,
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF0097B2),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+
+                                      // Catatan Servis
+                                      Text(
+                                        logItem.log.notes ??
+                                            'Servis Rutin Berhasil',
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                          color: Color(0xFF344054),
+                                        ),
+                                      ),
+                                      const Divider(height: 16, thickness: 0.5),
+
+                                      // Field Biaya (Cost Field)
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            'Biaya Servis',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                          Text(
+                                            costText,
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(
+                                                0xFF10B981,
+                                              ), // Warna Hijau untuk Biaya
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         );
@@ -683,7 +842,7 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
 }
 
 // ============================================================================
-// WIDGET MODAL DIALOG (GAMBAR 2: POP-UP HISTORI & MARK COMPLETED)
+// WIDGET MODAL DIALOG (POP-UP MARK SERVICE COMPLETED & COST INPUT)
 // ============================================================================
 class ServiceDetailDialog extends StatefulWidget {
   final MaintenanceTask task;
@@ -702,14 +861,16 @@ class ServiceDetailDialog extends StatefulWidget {
 class _ServiceDetailDialogState extends State<ServiceDetailDialog> {
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _costController = TextEditingController(
-    text: '60000',
-  );
+    text: '0',
+  ); // Field Biaya
   late Future<List<ServiceLog>> _logsFuture;
 
   @override
   void initState() {
     super.initState();
-    _logsFuture = DatabaseHelper.instance.getServiceLogsByTask(widget.task.id!);
+    _logsFuture = DatabaseHelper.instance.getServiceLogsByTask(
+      widget.task.id!,
+    ); //[cite: 1]
   }
 
   @override
@@ -717,165 +878,194 @@ class _ServiceDetailDialogState extends State<ServiceDetailDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       backgroundColor: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header Dialog (Title & Close 'x')
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  widget.task.taskName,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1D2939),
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.close,
-                      size: 16,
-                      color: Colors.black54,
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Dialog (Title & Close 'x')
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.task.taskName, //[cite: 1]
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1D2939),
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            const Text(
-              'History logs',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-            const SizedBox(height: 12),
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.close,
+                        size: 16,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const Text(
+                'History logs',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
 
-            // History Logs List inside Modal
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 120),
-              child: FutureBuilder<List<ServiceLog>>(
-                future: _logsFuture,
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                    return const Text(
-                      'Belum ada log histori',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    );
-                  }
-                  final logs = snapshot.data!;
-                  return ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: logs.length,
-                    itemBuilder: (context, index) {
-                      final log = logs[index];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          children: [
-                            Text(
-                              log.serviceDate,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF344054),
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              'Rp ${log.cost.toInt()}',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF344054),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Text(
-                              'ok',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey[500],
-                              ),
-                            ),
-                          ],
-                        ),
+              // History Logs List inside Modal
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 120),
+                child: FutureBuilder<List<ServiceLog>>(
+                  future: _logsFuture,
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                      return const Text(
+                        'Belum ada log histori',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
                       );
-                    },
-                  );
-                },
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Input Notes
-            Container(
-              height: 80,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF2F4F7),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: TextField(
-                controller: _notesController,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'Notes',
-                  border: InputBorder.none,
-                  hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
+                    }
+                    final logs = snapshot.data!;
+                    return ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: logs.length,
+                      itemBuilder: (context, index) {
+                        final log = logs[index];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Text(
+                                log.serviceDate,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF344054),
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                'Rp ${log.cost.toInt()}',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF344054),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
                 ),
               ),
-            ),
 
-            const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
-            // Submit Button ("mark last service as completed")
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton(
-                onPressed: () async {
-                  final cost = double.tryParse(_costController.text) ?? 0.0;
-                  final today = DateTime.now().toIso8601String().split('T')[0];
-
-                  await DatabaseHelper.instance.completeTaskAndLog(
-                    task: widget.task,
-                    serviceDate: today,
-                    cost: cost,
-                    notes:
-                        _notesController.text.isNotEmpty
-                            ? _notesController.text
-                            : null,
-                  );
-
-                  widget.onCompleted();
-                  if (mounted) Navigator.pop(context);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0097B2), // Tosca button
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(26),
-                  ),
-                  elevation: 0,
+              // INPUT BIAYA (COST FIELD)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 4,
                 ),
-                child: const Text(
-                  'mark last service as completed',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF2F4F7),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: TextField(
+                  controller: _costController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    icon: Icon(
+                      Icons.payments_outlined,
+                      color: Color(0xFF0097B2),
+                      size: 20,
+                    ),
+                    labelText: 'Biaya Servis (Rp)',
+                    labelStyle: TextStyle(color: Colors.grey, fontSize: 13),
+                    border: InputBorder.none,
                   ),
                 ),
               ),
-            ),
-          ],
+
+              const SizedBox(height: 12),
+
+              // INPUT CATATAN (NOTES FIELD)
+              Container(
+                height: 80,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF2F4F7),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: TextField(
+                  controller: _notesController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: 'Catatan Servis (Opsional)',
+                    border: InputBorder.none,
+                    hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // SUBMIT BUTTON
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    final cost = double.tryParse(_costController.text) ?? 0.0;
+                    final today =
+                        DateTime.now().toIso8601String().split('T')[0];
+
+                    await DatabaseHelper.instance.completeTaskAndLog(
+                      //[cite: 1]
+                      task: widget.task,
+                      serviceDate: today,
+                      cost: cost,
+                      notes:
+                          _notesController.text.isNotEmpty
+                              ? _notesController.text
+                              : null,
+                    );
+
+                    widget.onCompleted(); //[cite: 1]
+                    if (context.mounted) Navigator.pop(context); //[cite: 1]
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0097B2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(26),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'mark last service as completed',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
